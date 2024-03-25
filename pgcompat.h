@@ -1,180 +1,207 @@
-/* Python 2.x/3.x and SDL compatibility tools
+/* Python 2.x/3.x compatibility tools (internal)
  */
+#ifndef PGCOMPAT_INTERNAL_H
+#define PGCOMPAT_INTERNAL_H
 
-#if !defined(PGCOMPAT_H)
-#define PGCOMPAT_H
+#include "include/pgcompat.h"
 
-#include <Python.h>
+#if PY_MAJOR_VERSION >= 3
 
-/* Cobjects vanish in Python 3.2; so we will code as though we use capsules */
-#if defined(Py_CAPSULE_H)
-#define PG_HAVE_CAPSULE 1
+#define PY3 1
+
+/* Define some aliases for the removed PyInt_* functions */
+#define PyInt_Check(op) PyLong_Check(op)
+#define PyInt_FromString PyLong_FromString
+#define PyInt_FromLong PyLong_FromLong
+#define PyInt_FromSize_t PyLong_FromSize_t
+#define PyInt_FromSsize_t PyLong_FromSsize_t
+#define PyInt_AsLong PyLong_AsLong
+#define PyInt_AsSsize_t PyLong_AsSsize_t
+#define PyInt_AsUnsignedLongMask PyLong_AsUnsignedLongMask
+#define PyInt_AsUnsignedLongLongMask PyLong_AsUnsignedLongLongMask
+#define PyInt_AS_LONG PyLong_AS_LONG
+#define PyNumber_Int PyNumber_Long
+/* Int and Long are identical in Py3 so only check one */
+#define INT_CHECK(op) PyLong_Check(op)
+
+/* Weakrefs flags changed in 3.x */
+#define Py_TPFLAGS_HAVE_WEAKREFS 0
+
+/* Module init function returns new module instance. */
+#define MODINIT_RETURN(x) return x
+#define MODINIT_DEFINE(mod_name) PyMODINIT_FUNC PyInit_##mod_name (void)
+#define DECREF_MOD(mod) Py_DECREF (mod)
+
+/* Text interface. Use unicode strings. */
+#define Text_Type PyUnicode_Type
+#define Text_Check PyUnicode_Check
+
+#ifndef PYPY_VERSION
+#define Text_FromLocale(s) PyUnicode_DecodeLocale((s), "strict")
+#else /* PYPY_VERSION */
+/* workaround: missing function for pypy */
+#define Text_FromLocale PyUnicode_FromString
+#endif /* PYPY_VERSION */
+
+#define Text_FromUTF8 PyUnicode_FromString
+#define Text_FromUTF8AndSize PyUnicode_FromStringAndSize
+#define Text_FromFormat PyUnicode_FromFormat
+#define Text_GetSize PyUnicode_GetSize
+#define Text_GET_SIZE PyUnicode_GET_SIZE
+
+/* Binary interface. Use bytes. */
+#define Bytes_Type PyBytes_Type
+#define Bytes_Check PyBytes_Check
+#define Bytes_Size PyBytes_Size
+#define Bytes_AsString PyBytes_AsString
+#define Bytes_AsStringAndSize PyBytes_AsStringAndSize
+#define Bytes_FromStringAndSize PyBytes_FromStringAndSize
+#define Bytes_FromFormat PyBytes_FromFormat
+#define Bytes_AS_STRING PyBytes_AS_STRING
+#define Bytes_GET_SIZE PyBytes_GET_SIZE
+#define Bytes_AsDecodeObject PyBytes_AsDecodedObject
+
+#define Object_Unicode PyObject_Str
+
+#define IsTextObj(x) (PyUnicode_Check(x) || PyBytes_Check(x))
+
+/* Renamed builtins */
+#define BUILTINS_MODULE "builtins"
+#define BUILTINS_UNICODE "str"
+#define BUILTINS_UNICHR "chr"
+
+/* Defaults for unicode file path encoding */
+#define UNICODE_DEF_FS_CODEC Py_FileSystemDefaultEncoding
+#if defined(MS_WIN32)
+#define UNICODE_DEF_FS_ERROR "replace"
 #else
-#define PG_HAVE_CAPSULE 0
-#endif
-#if defined(Py_COBJECT_H)
-#define PG_HAVE_COBJECT 1
-#else
-#define PG_HAVE_COBJECT 0
-#endif
-#if !PG_HAVE_CAPSULE
-#define PyCapsule_New(ptr, n, dfn) PyCObject_FromVoidPtr(ptr, dfn)
-#define PyCapsule_GetPointer(obj, n) PyCObject_AsVoidPtr(obj)
-#define PyCapsule_CheckExact(obj) PyCObject_Check(obj)
+#define UNICODE_DEF_FS_ERROR "surrogateescape"
 #endif
 
-/* Pygame uses Py_buffer (PEP 3118) to exchange array information internally;
- * define here as needed.
+#else /* #if PY_MAJOR_VERSION >= 3 */
+
+#define PY3 0
+
+/* Check both Int and Long in PY2 */
+#define INT_CHECK(op) (PyInt_Check(op) || PyLong_Check(op))
+
+/* Module init function returns nothing. */
+#define MODINIT_RETURN(x) return
+#define MODINIT_DEFINE(mod_name) PyMODINIT_FUNC init##mod_name (void)
+#define DECREF_MOD(mod)
+
+/* Text interface. Use ascii strings. */
+#define Text_Type PyString_Type
+#define Text_Check PyString_Check
+#define Text_FromLocale PyString_FromString
+#define Text_FromUTF8 PyString_FromString
+#define Text_FromUTF8AndSize PyString_FromStringAndSize
+#define Text_FromFormat PyString_FromFormat
+#define Text_GetSize PyString_GetSize
+#define Text_GET_SIZE PyString_GET_SIZE
+
+/* Binary interface. Use ascii strings. */
+#define Bytes_Type PyString_Type
+#define Bytes_Check PyString_Check
+#define Bytes_Size PyString_Size
+#define Bytes_AsString PyString_AsString
+#define Bytes_AsStringAndSize PyString_AsStringAndSize
+#define Bytes_FromStringAndSize PyString_FromStringAndSize
+#define Bytes_FromFormat PyString_FromFormat
+#define Bytes_AS_STRING PyString_AS_STRING
+#define Bytes_GET_SIZE PyString_GET_SIZE
+#define Bytes_AsDecodedObject PyString_AsDecodedObject
+
+#define Object_Unicode PyObject_Unicode
+
+/* Renamed builtins */
+#define BUILTINS_MODULE "__builtin__"
+#define BUILTINS_UNICODE "unicode"
+#define BUILTINS_UNICHR "unichr"
+
+/* Defaults for unicode file path encoding */
+#define UNICODE_DEF_FS_CODEC Py_FileSystemDefaultEncoding
+#define UNICODE_DEF_FS_ERROR "strict"
+
+#endif /* #if PY_MAJOR_VERSION >= 3 */
+
+#define PY2 (!PY3)
+
+#define MODINIT_ERROR MODINIT_RETURN (NULL)
+
+/* Module state. These macros are used to define per-module macros.
+ * v - global state variable (Python 2.x)
+ * s - global state structure (Python 3.x)
  */
-#if !defined(PyBUF_SIMPLE)
-typedef struct bufferinfo {
-	void *buf;
-	PyObject *obj;
-	Py_ssize_t len;
-	Py_ssize_t itemsize;
-	int readonly;
-	int ndim;
-	char *format;
-	Py_ssize_t *shape;
-	Py_ssize_t *strides;
-	Py_ssize_t *suboffsets;
-	void *internal;
-} Py_buffer;
+#define PY2_GETSTATE(v) (&(v))
+#define PY3_GETSTATE(s, m) ((struct s *) PyModule_GetState (m))
 
-/* Flags for getting buffers */
-#define PyBUF_SIMPLE 0
-#define PyBUF_WRITABLE 0x0001
-/*  we used to include an E, backwards compatible alias  */
-#define PyBUF_WRITEABLE PyBUF_WRITABLE
-#define PyBUF_FORMAT 0x0004
-#define PyBUF_ND 0x0008
-#define PyBUF_STRIDES (0x0010 | PyBUF_ND)
-#define PyBUF_C_CONTIGUOUS (0x0020 | PyBUF_STRIDES)
-#define PyBUF_F_CONTIGUOUS (0x0040 | PyBUF_STRIDES)
-#define PyBUF_ANY_CONTIGUOUS (0x0080 | PyBUF_STRIDES)
-#define PyBUF_INDIRECT (0x0100 | PyBUF_STRIDES)
-
-#define PyBUF_CONTIG (PyBUF_ND | PyBUF_WRITABLE)
-#define PyBUF_CONTIG_RO (PyBUF_ND)
-
-#define PyBUF_STRIDED (PyBUF_STRIDES | PyBUF_WRITABLE)
-#define PyBUF_STRIDED_RO (PyBUF_STRIDES)
-
-#define PyBUF_RECORDS (PyBUF_STRIDES | PyBUF_WRITABLE | PyBUF_FORMAT)
-#define PyBUF_RECORDS_RO (PyBUF_STRIDES | PyBUF_FORMAT)
-
-#define PyBUF_FULL (PyBUF_INDIRECT | PyBUF_WRITABLE | PyBUF_FORMAT)
-#define PyBUF_FULL_RO (PyBUF_INDIRECT | PyBUF_FORMAT)
-
-#define PyBUF_READ 0x100
-#define PyBUF_WRITE 0x200
-#define PyBUF_SHADOW 0x400
-
-typedef int(*getbufferproc)(PyObject *, Py_buffer *, int);
-typedef void(*releasebufferproc)(Py_buffer *);
-#endif /* ~defined(PyBUF_SIMPLE) */
-
-/* define common types where SDL is not included */
-#ifndef SDL_VERSION_ATLEAST
-#ifdef _MSC_VER
-typedef unsigned __int8 uint8_t;
-typedef unsigned __int32 uint32_t;
-#else
-#include <stdint.h>
+/* Pep 3123: Making PyObject_HEAD conform to standard C */
+#if !defined(Py_TYPE)
+#define Py_TYPE(o)    (((PyObject *)(o))->ob_type)
+#define Py_REFCNT(o)  (((PyObject *)(o))->ob_refcnt)
+#define Py_SIZE(o)    (((PyVarObject *)(o))->ob_size)
 #endif
-typedef uint32_t Uint32;
-typedef uint8_t Uint8;
-#endif /* no SDL */
 
+/* Encode a unicode file path */
+#define Unicode_AsEncodedPath(u) \
+    PyUnicode_AsEncodedString ((u), UNICODE_DEF_FS_CODEC, UNICODE_DEF_FS_ERROR)
+
+#define RELATIVE_MODULE(m) ("." m)
+
+#define HAVE_OLD_BUFPROTO PY2
+
+#if !defined(PG_ENABLE_OLDBUF)  /* allow for command line override */
+#if HAVE_OLD_BUFPROTO
+#define PG_ENABLE_OLDBUF 1
+#else
+#define PG_ENABLE_OLDBUF 0
+#endif
+#endif
+
+#ifndef Py_TPFLAGS_HAVE_NEWBUFFER
+#define Py_TPFLAGS_HAVE_NEWBUFFER 0
+#endif
+
+#ifndef Py_TPFLAGS_HAVE_CLASS
+#define Py_TPFLAGS_HAVE_CLASS 0
+#endif
+
+#ifndef Py_TPFLAGS_CHECKTYPES
+#define Py_TPFLAGS_CHECKTYPES 0
+#endif
+
+#if PY_VERSION_HEX >= 0x03020000
+#define Slice_GET_INDICES_EX(slice, length, start, stop, step, slicelength) \
+    PySlice_GetIndicesEx(slice, length, start, stop, step, slicelength)
+#else
+#define Slice_GET_INDICES_EX(slice, length, start, stop, step, slicelength) \
+    PySlice_GetIndicesEx((PySliceObject *)(slice), length, \
+                         start, stop, step, slicelength)
+#endif
 
 #if defined(SDL_VERSION_ATLEAST)
+#if (SDL_VERSION_ATLEAST(2, 0, 0)) && !(SDL_VERSION_ATLEAST(2, 0, 5))
+/* These functions require SDL 2.0.5 or greater.
 
-#ifndef SDL_WINDOW_VULKAN
-#define SDL_WINDOW_VULKAN 0
+  https://wiki.libsdl.org/SDL_SetWindowResizable
+*/
+void SDL_SetWindowResizable(SDL_Window *window, SDL_bool resizable);
+int SDL_GetWindowOpacity(SDL_Window *window, float *opacity);
+int SDL_SetWindowOpacity(SDL_Window *window, float opacity);
+int SDL_SetWindowModalFor(SDL_Window *modal_window, SDL_Window *parent_window);
+int SDL_SetWindowInputFocus(SDL_Window *window);
+SDL_Surface * SDL_CreateRGBSurfaceWithFormat(Uint32 flags, int width, int height, int depth,
+                               Uint32 format);
 #endif
-
-#ifndef SDL_WINDOW_ALWAYS_ON_TOP
-#define SDL_WINDOW_ALWAYS_ON_TOP 0
-#endif
-
-#ifndef SDL_WINDOW_SKIP_TASKBAR
-#define SDL_WINDOW_SKIP_TASKBAR 0
-#endif
-
-#ifndef SDL_WINDOW_UTILITY
-#define SDL_WINDOW_UTILITY 0
-#endif
-
-#ifndef SDL_WINDOW_TOOLTIP
-#define SDL_WINDOW_TOOLTIP 0
-#endif
-
-#ifndef SDL_WINDOW_POPUP_MENU
-#define SDL_WINDOW_POPUP_MENU 0
-#endif
-
-
-#ifndef SDL_WINDOW_INPUT_GRABBED
-#define SDL_WINDOW_INPUT_GRABBED 0
-#endif
-
-#ifndef SDL_WINDOW_INPUT_FOCUS
-#define SDL_WINDOW_INPUT_FOCUS 0
-#endif
-
-#ifndef SDL_WINDOW_MOUSE_FOCUS
-#define SDL_WINDOW_MOUSE_FOCUS 0
-#endif
-
-#ifndef SDL_WINDOW_FOREIGN
-#define SDL_WINDOW_FOREIGN 0
-#endif
-
-#ifndef SDL_WINDOW_ALLOW_HIGHDPI
-#define SDL_WINDOW_ALLOW_HIGHDPI 0
-#endif
-
-#ifndef SDL_WINDOW_MOUSE_CAPTURE
-#define SDL_WINDOW_MOUSE_CAPTURE 0
-#endif
-
-#ifndef SDL_WINDOW_ALWAYS_ON_TOP
-#define SDL_WINDOW_ALWAYS_ON_TOP 0
-#endif
-
-#ifndef SDL_WINDOW_SKIP_TASKBAR
-#define SDL_WINDOW_SKIP_TASKBAR 0
-#endif
-
-#ifndef SDL_WINDOW_UTILITY
-#define SDL_WINDOW_UTILITY 0
-#endif
-
-#ifndef SDL_WINDOW_TOOLTIP
-#define SDL_WINDOW_TOOLTIP 0
-#endif
-
-#ifndef SDL_WINDOW_POPUP_MENU
-#define SDL_WINDOW_POPUP_MENU 0
-#endif
-
-#if SDL_VERSION_ATLEAST(2, 0, 4)
-/* To control the use of:
- * SDL_AUDIODEVICEADDED
- * SDL_AUDIODEVICEREMOVED
- *
- * Ref: https://wiki.libsdl.org/SDL_EventType
- * Ref: https://wiki.libsdl.org/SDL_AudioDeviceEvent
- */
-#define SDL2_AUDIODEVICE_SUPPORTED
-#endif
-
-#ifndef SDL_MOUSEWHEEL_FLIPPED
-#define NO_SDL_MOUSEWHEEL_FLIPPED
-#endif
-
-
 #endif /* defined(SDL_VERSION_ATLEAST) */
 
+// Currently needed to build scrap.c, event.c, display.c
+// with Windows SDK 10.0.18362.0 and SDL1 build
+#ifdef _MSC_VER
+    #ifndef WINDOWS_IGNORE_PACKING_MISMATCH
+        #define WINDOWS_IGNORE_PACKING_MISMATCH
+    #endif
+#endif
 
-#endif /* ~defined(PGCOMPAT_H) */
+#endif /* ~PGCOMPAT_INTERNAL_H */
